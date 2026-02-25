@@ -996,26 +996,30 @@ function formatDuration(ms) {
 function renderGantt(flights) {
   if (flights.length === 0) return;
 
-  // Parse all times
+  // Parse all times — use UTC for positioning, local for display
   const legs = flights.map(f => ({
     ...f,
-    dep: parseDT(f.departureTime),
-    arr: parseDT(f.arrivalTime)
+    dep: parseDT(f.departureTime),       // local time (for display)
+    arr: parseDT(f.arrivalTime),         // local time (for display)
+    depUTC: parseDT(f.departureUTC),     // UTC (for positioning)
+    arrUTC: parseDT(f.arrivalUTC)        // UTC (for positioning)
   }));
 
   // Keep flights in the order the user entered them — this reflects the true
   // itinerary sequence (sorting by local time breaks across time zones)
 
-  // Compute layovers
+  // Compute layovers using UTC so cross-timezone gaps are correct
   const segments = []; // { type: 'flight' | 'layover', ... }
   for (let i = 0; i < legs.length; i++) {
     segments.push({ type: 'flight', ...legs[i] });
     if (i < legs.length - 1) {
-      const layoverMs = legs[i + 1].dep - legs[i].arr;
+      const layoverMs = legs[i + 1].depUTC - legs[i].arrUTC;
       if (layoverMs > 0) {
         segments.push({
           type: 'layover',
-          dep: legs[i].arr,
+          depUTC: legs[i].arrUTC,
+          arrUTC: legs[i + 1].depUTC,
+          dep: legs[i].arr,   // for display
           arr: legs[i + 1].dep,
           origin: legs[i].destination,
           destination: legs[i + 1].origin,
@@ -1025,17 +1029,17 @@ function renderGantt(flights) {
     }
   }
 
-  // Global time range
-  const allTimes = legs.flatMap(l => [l.dep, l.arr]).filter(Boolean);
-  const minTime = new Date(Math.min(...allTimes));
-  const maxTime = new Date(Math.max(...allTimes));
-  const totalMs = maxTime - minTime;
-  const totalFlightMs = legs.reduce((s, l) => s + (l.arr - l.dep), 0);
+  // Global time range using UTC for correct positioning
+  const allUTC = legs.flatMap(l => [l.depUTC, l.arrUTC]).filter(Boolean);
+  const minUTC = new Date(Math.min(...allUTC));
+  const maxUTC = new Date(Math.max(...allUTC));
+  const totalMs = maxUTC - minUTC;
+  const totalFlightMs = legs.reduce((s, l) => s + (l.arrUTC - l.depUTC), 0);
   const totalLayoverMs = segments.filter(s => s.type === 'layover').reduce((s, l) => s + l.durationMs, 0);
 
-  // Subtitle
-  const startDate = minTime.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-  const endDate = maxTime.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  // Subtitle — use first leg's local departure and last leg's local arrival
+  const startDate = legs[0].dep.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  const endDate = legs[legs.length - 1].arr.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   document.getElementById('journey-subtitle').textContent =
     startDate === endDate ? `${startDate}` : `${startDate} — ${endDate}`;
 
@@ -1058,41 +1062,49 @@ function renderGantt(flights) {
     </div>
   `;
 
-  // Time axis — generate hour markers
+  // Time axis — generate hour markers based on first leg's local time
+  // We use UTC for positioning but show local time labels anchored to leg 1's timezone
   const axisEl = document.getElementById('gantt-time-axis');
   axisEl.innerHTML = '';
-  const hourStart = new Date(minTime);
-  hourStart.setMinutes(0, 0, 0);
-  const hourEnd = new Date(maxTime);
-  hourEnd.setMinutes(0, 0, 0);
-  hourEnd.setHours(hourEnd.getHours() + 1);
+  
+  // Use the first leg's local departure to anchor the axis labels
+  const firstDep = legs[0].dep;
+  const firstDepUTC = legs[0].depUTC;
+  const tzOffsetMs = firstDep.getTime() - firstDepUTC.getTime(); // local-UTC offset of first city
+  
+  // Create axis labels: walk the UTC range but display as local time of departure city
+  const axisStartUTC = new Date(minUTC);
+  axisStartUTC.setUTCMinutes(0, 0, 0);
+  // Round down to the previous hour in "local" terms
+  const axisStartLocal = new Date(axisStartUTC.getTime() + tzOffsetMs);
+  axisStartLocal.setMinutes(0, 0, 0);
+  const axisStartUTCAdjusted = new Date(axisStartLocal.getTime() - tzOffsetMs);
+  
+  const axisEndUTC = new Date(maxUTC);
+  axisEndUTC.setUTCMinutes(0, 0, 0);
+  axisEndUTC.setUTCHours(axisEndUTC.getUTCHours() + 2);
 
-  const hours = [];
-  let cursor = new Date(hourStart);
-  // Show a reasonable number of labels
-  const totalHours = (hourEnd - hourStart) / 3600000;
+  const totalHours = (axisEndUTC - axisStartUTCAdjusted) / 3600000;
   const step = totalHours <= 12 ? 1 : totalHours <= 24 ? 2 : Math.ceil(totalHours / 12);
 
-  while (cursor <= hourEnd) {
-    hours.push(new Date(cursor));
+  let cursor = new Date(axisStartUTCAdjusted);
+  while (cursor <= axisEndUTC) {
+    const label = document.createElement('div');
+    label.className = 'gantt-time-label';
+    // Show as local time of first departure city
+    const localDisplay = new Date(cursor.getTime() + tzOffsetMs);
+    const hr = localDisplay.getHours();
+    const ampm = hr >= 12 ? 'PM' : 'AM';
+    const hr12 = hr % 12 || 12;
+    const showDate = totalHours > 24;
+    label.textContent = showDate
+      ? `${localDisplay.getMonth() + 1}/${localDisplay.getDate()} ${hr12}${ampm}`
+      : `${hr12}${ampm}`;
+    axisEl.appendChild(label);
     cursor = new Date(cursor.getTime() + step * 3600000);
   }
 
-  hours.forEach(h => {
-    const label = document.createElement('div');
-    label.className = 'gantt-time-label';
-    const hr = h.getHours();
-    const ampm = hr >= 12 ? 'PM' : 'AM';
-    const hr12 = hr % 12 || 12;
-    // If multi-day, show date too
-    const showDate = totalHours > 24;
-    label.textContent = showDate
-      ? `${h.getMonth() + 1}/${h.getDate()} ${hr12}${ampm}`
-      : `${hr12}${ampm}`;
-    axisEl.appendChild(label);
-  });
-
-  // Gantt rows
+  // Gantt rows — positioned using UTC so bars flow correctly left-to-right
   const rowsEl = document.getElementById('gantt-rows');
   rowsEl.innerHTML = '';
 
@@ -1123,12 +1135,12 @@ function renderGantt(flights) {
       `;
     }
 
-    // Bar area
+    // Bar area — use UTC for positioning
     const barArea = document.createElement('div');
     barArea.className = 'gantt-bar-area';
 
-    const leftPct = ((seg.dep - minTime) / totalMs) * 100;
-    const widthPct = ((seg.arr - seg.dep) / totalMs) * 100;
+    const leftPct = ((seg.depUTC - minUTC) / totalMs) * 100;
+    const widthPct = ((seg.arrUTC - seg.depUTC) / totalMs) * 100;
 
     const bar = document.createElement('div');
     bar.className = `gantt-bar ${seg.type}`;
