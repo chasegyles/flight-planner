@@ -971,9 +971,29 @@ async function handleSubmit() {
 // ============================================================
 function parseDT(str) {
   if (!str) return null;
-  // AeroDataBox local times come as "2025-03-15 14:30+02:00" or "2025-03-15T14:30"
+  // AeroDataBox times come as "2025-03-15 14:30+02:00" or "2025-03-15T14:30"
   const cleaned = str.replace(' ', 'T');
   return new Date(cleaned);
+}
+
+// Parse a raw datetime string into epoch ms, treating bare strings (no tz offset) as-is
+function parseDTRaw(str) {
+  if (!str) return 0;
+  return new Date(str.replace(' ', 'T')).getTime();
+}
+
+// Extract a display time like "8:11 AM" from a raw local time string
+// Input: "2026-05-17 08:11-05:00" or "2026-05-17 08:11" or "2026-05-17T08:11+09:00"
+function extractLocalTimeDisplay(str) {
+  if (!str) return '—';
+  // Extract HH:MM from the string (chars 11-16 of "YYYY-MM-DD HH:MM..." or "YYYY-MM-DDTHH:MM...")
+  const match = str.match(/(\d{2}):(\d{2})/);
+  if (!match) return '—';
+  let h = parseInt(match[1], 10);
+  const m = match[2];
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  h = h % 12 || 12;
+  return `${h}:${m} ${ampm}`;
 }
 
 function formatTime(dt) {
@@ -996,54 +1016,57 @@ function formatDuration(ms) {
 function renderGantt(flights) {
   if (flights.length === 0) return;
 
-  // Parse all times — use UTC for positioning, local for display
-  const legs = flights.map(f => ({
-    ...f,
-    dep: parseDT(f.departureTime),       // local time (for display)
-    arr: parseDT(f.arrivalTime),         // local time (for display)
-    depUTC: parseDT(f.departureUTC),     // UTC (for positioning)
-    arrUTC: parseDT(f.arrivalUTC)        // UTC (for positioning)
-  }));
+  // === PARSE TIMES ===
+  // Use UTC times ONLY for all math/positioning (they have +00:00 so they parse correctly)
+  // Use raw local time strings for display labels only
+  const legs = flights.map(f => {
+    const depUTC = parseDT(f.departureUTC);
+    const arrUTC = parseDT(f.arrivalUTC);
+    // Extract display time from local string like "2026-05-17 08:11-05:00" -> "8:11 AM"
+    const depDisplay = extractLocalTimeDisplay(f.departureTime);
+    const arrDisplay = extractLocalTimeDisplay(f.arrivalTime);
+    return { ...f, depUTC, arrUTC, depDisplay, arrDisplay };
+  });
 
-  // Keep flights in the order the user entered them — this reflects the true
-  // itinerary sequence (sorting by local time breaks across time zones)
-
-  // Compute layovers using UTC so cross-timezone gaps are correct
-  const segments = []; // { type: 'flight' | 'layover', ... }
+  // === LAYOVERS (using UTC) ===
+  const segments = [];
   for (let i = 0; i < legs.length; i++) {
     segments.push({ type: 'flight', ...legs[i] });
     if (i < legs.length - 1) {
-      const layoverMs = legs[i + 1].depUTC - legs[i].arrUTC;
-      if (layoverMs > 0) {
+      const gapMs = legs[i + 1].depUTC - legs[i].arrUTC;
+      if (gapMs > 0) {
         segments.push({
           type: 'layover',
           depUTC: legs[i].arrUTC,
           arrUTC: legs[i + 1].depUTC,
-          dep: legs[i].arr,   // for display
-          arr: legs[i + 1].dep,
           origin: legs[i].destination,
-          destination: legs[i + 1].origin,
-          durationMs: layoverMs
+          durationMs: gapMs
         });
       }
     }
   }
 
-  // Global time range using UTC for correct positioning
-  const allUTC = legs.flatMap(l => [l.depUTC, l.arrUTC]).filter(Boolean);
-  const minUTC = new Date(Math.min(...allUTC));
-  const maxUTC = new Date(Math.max(...allUTC));
+  // === GLOBAL RANGE (UTC) ===
+  const minUTC = legs[0].depUTC;
+  const maxUTC = legs[legs.length - 1].arrUTC;
   const totalMs = maxUTC - minUTC;
   const totalFlightMs = legs.reduce((s, l) => s + (l.arrUTC - l.depUTC), 0);
   const totalLayoverMs = segments.filter(s => s.type === 'layover').reduce((s, l) => s + l.durationMs, 0);
 
-  // Subtitle — use first leg's local departure and last leg's local arrival
-  const startDate = legs[0].dep.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-  const endDate = legs[legs.length - 1].arr.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  // === SUBTITLE ===
+  const fmtDate = (raw) => {
+    if (!raw) return '';
+    const d = raw.trim().substring(0, 10); // "2026-05-17"
+    const [y, m, dd] = d.split('-');
+    const dt = new Date(+y, +m - 1, +dd);
+    return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  };
+  const startDate = fmtDate(flights[0].departureTime);
+  const endDate = fmtDate(flights[flights.length - 1].arrivalTime);
   document.getElementById('journey-subtitle').textContent =
-    startDate === endDate ? `${startDate}` : `${startDate} — ${endDate}`;
+    startDate === endDate ? startDate : `${startDate} — ${endDate}`;
 
-  // Stats
+  // === STATS ===
   document.getElementById('stats-row').innerHTML = `
     <div class="stat-card">
       <div class="stat-card-label">Total Flights</div>
@@ -1062,58 +1085,51 @@ function renderGantt(flights) {
     </div>
   `;
 
-  // Time axis — generate hour markers based on first leg's local time
-  // We use UTC for positioning but show local time labels anchored to leg 1's timezone
+  // === TIME AXIS ===
+  // Show hour labels sequentially from first departure's local time
   const axisEl = document.getElementById('gantt-time-axis');
   axisEl.innerHTML = '';
-  
-  // Use the first leg's local departure to anchor the axis labels
-  const firstDep = legs[0].dep;
-  const firstDepUTC = legs[0].depUTC;
-  const tzOffsetMs = firstDep.getTime() - firstDepUTC.getTime(); // local-UTC offset of first city
-  
-  // Create axis labels: walk the UTC range but display as local time of departure city
-  const axisStartUTC = new Date(minUTC);
-  axisStartUTC.setUTCMinutes(0, 0, 0);
-  // Round down to the previous hour in "local" terms
-  const axisStartLocal = new Date(axisStartUTC.getTime() + tzOffsetMs);
-  axisStartLocal.setMinutes(0, 0, 0);
-  const axisStartUTCAdjusted = new Date(axisStartLocal.getTime() - tzOffsetMs);
-  
-  const axisEndUTC = new Date(maxUTC);
-  axisEndUTC.setUTCMinutes(0, 0, 0);
-  axisEndUTC.setUTCHours(axisEndUTC.getUTCHours() + 2);
 
-  const totalHours = (axisEndUTC - axisStartUTCAdjusted) / 3600000;
+  // Extract departure hour from raw local time string of first flight
+  const depMatch = flights[0].departureTime.match(/(\d{2}):(\d{2})/);
+  const startHour = depMatch ? parseInt(depMatch[1], 10) : 0;
+  const startMin = depMatch ? parseInt(depMatch[2], 10) : 0;
+
+  const totalHours = totalMs / 3600000;
   const step = totalHours <= 12 ? 1 : totalHours <= 24 ? 2 : Math.ceil(totalHours / 12);
 
-  let cursor = new Date(axisStartUTCAdjusted);
-  while (cursor <= axisEndUTC) {
+  // Generate labels from start hour through journey duration
+  for (let offset = 0; offset <= totalHours + 1; offset += step) {
     const label = document.createElement('div');
     label.className = 'gantt-time-label';
-    // Show as local time of first departure city
-    const localDisplay = new Date(cursor.getTime() + tzOffsetMs);
-    const hr = localDisplay.getHours();
-    const ampm = hr >= 12 ? 'PM' : 'AM';
-    const hr12 = hr % 12 || 12;
-    const showDate = totalHours > 24;
-    label.textContent = showDate
-      ? `${localDisplay.getMonth() + 1}/${localDisplay.getDate()} ${hr12}${ampm}`
-      : `${hr12}${ampm}`;
+    let h = (startHour + offset) % 24;
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    const h12 = h % 12 || 12;
+    // Show day indicator if journey spans midnight
+    const dayOffset = Math.floor((startHour + offset) / 24);
+    label.textContent = dayOffset > 0 ? `+${dayOffset}d ${h12}${ampm}` : `${h12}${ampm}`;
     axisEl.appendChild(label);
-    cursor = new Date(cursor.getTime() + step * 3600000);
   }
 
-  // Gantt rows — positioned using UTC so bars flow correctly left-to-right
+  // === GANTT ROWS ===
+  // Position bars SEQUENTIALLY: first segment starts at left, each subsequent
+  // segment starts where the previous one ended. No timestamp math — just durations.
   const rowsEl = document.getElementById('gantt-rows');
   rowsEl.innerHTML = '';
 
-  // We render ONE row per segment
+  // Calculate total journey duration by summing all segment durations
+  const segDurations = segments.map(seg => {
+    if (seg.type === 'layover') return seg.durationMs;
+    return seg.arrUTC - seg.depUTC;
+  });
+  const totalJourneyMs = segDurations.reduce((a, b) => a + b, 0);
+
+  // Build cumulative offsets
+  let cumulativeMs = 0;
   segments.forEach((seg, idx) => {
     const row = document.createElement('div');
     row.className = 'gantt-row';
 
-    // Label
     const labelDiv = document.createElement('div');
     labelDiv.className = 'gantt-row-label';
     if (seg.type === 'flight') {
@@ -1135,12 +1151,12 @@ function renderGantt(flights) {
       `;
     }
 
-    // Bar area — use UTC for positioning
     const barArea = document.createElement('div');
     barArea.className = 'gantt-bar-area';
 
-    const leftPct = ((seg.depUTC - minUTC) / totalMs) * 100;
-    const widthPct = ((seg.arrUTC - seg.depUTC) / totalMs) * 100;
+    const segMs = segDurations[idx];
+    const leftPct = (cumulativeMs / totalJourneyMs) * 100;
+    const widthPct = (segMs / totalJourneyMs) * 100;
 
     const bar = document.createElement('div');
     bar.className = `gantt-bar ${seg.type}`;
@@ -1148,12 +1164,11 @@ function renderGantt(flights) {
     bar.style.width = `${Math.max(widthPct, 2)}%`;
 
     if (seg.type === 'flight') {
-      bar.textContent = `${formatTime(seg.dep)} — ${formatTime(seg.arr)}`;
+      bar.textContent = `${seg.depDisplay} — ${seg.arrDisplay}`;
     } else {
       bar.textContent = formatDuration(seg.durationMs);
     }
 
-    // Tooltip
     bar.addEventListener('mouseenter', (e) => showTooltip(e, seg));
     bar.addEventListener('mousemove', (e) => moveTooltip(e));
     bar.addEventListener('mouseleave', () => hideTooltip());
@@ -1162,12 +1177,14 @@ function renderGantt(flights) {
     row.appendChild(labelDiv);
     row.appendChild(barArea);
     rowsEl.appendChild(row);
+
+    cumulativeMs += segMs;
   });
 
-  // Leg details table
+  // === LEG DETAILS TABLE ===
   const tbody = document.getElementById('leg-table-body');
   tbody.innerHTML = '';
-  segments.forEach((seg, idx) => {
+  segments.forEach(seg => {
     const tr = document.createElement('tr');
     if (seg.type === 'flight') {
       const logoUrl = airlineLogoUrl(seg.airlineIata || seg.flightNumber.substring(0, 2));
@@ -1175,20 +1192,17 @@ function renderGantt(flights) {
         <td class="flight-num">${seg.flightNumber}</td>
         <td><div class="airline-cell"><img class="airline-logo-sm" src="${logoUrl}" alt="" onerror="this.style.display='none'" />${seg.airline}</div></td>
         <td>${seg.origin} → ${seg.destination}</td>
-        <td>${formatTime(seg.dep)}</td>
-        <td>${formatTime(seg.arr)}</td>
-        <td>${formatDuration(seg.arr - seg.dep)}</td>
+        <td>${seg.depDisplay}</td>
+        <td>${seg.arrDisplay}</td>
+        <td>${formatDuration(seg.arrUTC - seg.depUTC)}</td>
       `;
     } else {
       tr.className = 'layover-row';
-      tr.innerHTML = `
-        <td colspan="6">⏱ Layover at ${seg.origin} — ${formatDuration(seg.durationMs)}</td>
-      `;
+      tr.innerHTML = `<td colspan="6">⏱ Layover at ${seg.origin} — ${formatDuration(seg.durationMs)}</td>`;
     }
     tbody.appendChild(tr);
   });
 
-  // Show gantt section
   document.getElementById('gantt-container').style.display = 'block';
   document.getElementById('gantt-container').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
@@ -1203,9 +1217,9 @@ function showTooltip(e, seg) {
     html = `
       <div class="tooltip-row"><span class="tooltip-label">Flight</span><br><span class="tooltip-value">${seg.flightNumber} — ${seg.airline}</span></div>
       <div class="tooltip-row"><span class="tooltip-label">Route</span><br><span class="tooltip-value">${seg.originName || seg.origin} → ${seg.destinationName || seg.destination}</span></div>
-      <div class="tooltip-row"><span class="tooltip-label">Departure</span><br><span class="tooltip-value">${formatTime(seg.dep)}</span></div>
-      <div class="tooltip-row"><span class="tooltip-label">Arrival</span><br><span class="tooltip-value">${formatTime(seg.arr)}</span></div>
-      <div class="tooltip-row"><span class="tooltip-label">Duration</span><br><span class="tooltip-value">${formatDuration(seg.arr - seg.dep)}</span></div>
+      <div class="tooltip-row"><span class="tooltip-label">Departure</span><br><span class="tooltip-value">${seg.depDisplay}</span></div>
+      <div class="tooltip-row"><span class="tooltip-label">Arrival</span><br><span class="tooltip-value">${seg.arrDisplay}</span></div>
+      <div class="tooltip-row"><span class="tooltip-label">Duration</span><br><span class="tooltip-value">${formatDuration(seg.arrUTC - seg.depUTC)}</span></div>
       ${seg.aircraft ? `<div class="tooltip-row"><span class="tooltip-label">Aircraft</span><br><span class="tooltip-value">${seg.aircraft}</span></div>` : ''}
     `;
   } else {
