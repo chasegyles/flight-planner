@@ -1003,8 +1003,8 @@ function renderGantt(flights) {
     arr: parseDT(f.arrivalTime)
   }));
 
-  // Sort by departure time so timeline is chronological
-  legs.sort((a, b) => a.dep - b.dep);
+  // Keep flights in the order the user entered them — this reflects the true
+  // itinerary sequence (sorting by local time breaks across time zones)
 
   // Compute layovers
   const segments = []; // { type: 'flight' | 'layover', ... }
