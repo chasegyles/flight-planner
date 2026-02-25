@@ -1233,8 +1233,31 @@ function hideTooltip() {
 // ============================================================
 // Init
 // ============================================================
+// Auto-resize: tell parent iframe our height
+(function() {
+  function postHeight() {
+    const h = document.documentElement.scrollHeight;
+    window.parent.postMessage({ type: 'flight-planner-resize', height: h }, '*');
+  }
+  // Observe any size changes
+  const ro = new ResizeObserver(postHeight);
+  ro.observe(document.body);
+  // Also fire on load and after renders
+  window.addEventListener('load', postHeight);
+  setInterval(postHeight, 500);
+})();
+
 addFlightRow();
 addFlightRow();
+// Auto-report height to parent iframe
+function reportHeight() {
+  const height = document.documentElement.scrollHeight;
+  window.parent.postMessage({ type: 'resize-iframe', height: height }, '*');
+}
+// Report on load, after renders, and on resize
+window.addEventListener('load', () => setTimeout(reportHeight, 100));
+window.addEventListener('resize', reportHeight);
+new MutationObserver(reportHeight).observe(document.body, { childList: true, subtree: true, attributes: true });
 </script>
 
 </body>
