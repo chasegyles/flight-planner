@@ -1,0 +1,1228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Flight Planner — Visualize Your Journey</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --orange: #C8102E;
+    --orange-light: #FFF1F2;
+    --orange-hover: #A80D25;
+    --green: #16A34A;
+    --green-light: #F0FDF4;
+    --blue: #003A70;
+    --blue-light: #E8F0F8;
+    --dark: #1A1A1A;
+    --gray-900: #2D2D2D;
+    --gray-700: #555;
+    --gray-500: #888;
+    --gray-400: #AAA;
+    --gray-300: #D1D5DB;
+    --gray-200: #E5E7EB;
+    --gray-100: #F3F4F6;
+    --gray-50: #F9FAFB;
+    --white: #FFFFFF;
+    --card-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+    --card-shadow-lg: 0 4px 24px rgba(0,0,0,0.08);
+    --radius: 12px;
+    --radius-sm: 8px;
+    --radius-lg: 16px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: var(--gray-50);
+    color: var(--dark);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .container {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 0 24px;
+  }
+
+  /* Header */
+  .hero {
+    text-align: center;
+    padding: 60px 0 20px;
+  }
+
+  .badge {
+    display: inline-block;
+    padding: 6px 18px;
+    border: 1px solid var(--gray-200);
+    border-radius: 100px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--orange);
+    background: var(--white);
+    margin-bottom: 20px;
+    letter-spacing: 0.02em;
+  }
+
+  .hero h1 {
+    font-size: clamp(32px, 5vw, 48px);
+    font-weight: 700;
+    line-height: 1.15;
+    color: var(--dark);
+    margin-bottom: 12px;
+  }
+
+  .hero h1 span {
+    color: var(--orange);
+  }
+
+  .hero p {
+    font-size: 16px;
+    color: var(--gray-500);
+    max-width: 500px;
+    margin: 0 auto;
+  }
+
+  /* Divider dot */
+  .dot-divider {
+    text-align: center;
+    padding: 24px 0;
+  }
+  .dot-divider::after {
+    content: '';
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--gray-300);
+  }
+
+  /* Card */
+  .card {
+    background: var(--white);
+    border: 1px solid var(--gray-200);
+    border-radius: var(--radius-lg);
+    padding: 36px;
+    margin-bottom: 24px;
+    box-shadow: var(--card-shadow);
+  }
+
+  .card-title {
+    font-size: 22px;
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+
+  .card-title span {
+    color: var(--orange);
+  }
+
+  .card-subtitle {
+    font-size: 14px;
+    color: var(--gray-500);
+    margin-bottom: 24px;
+  }
+
+  /* Gantt Chart Area */
+  #gantt-container {
+    display: none;
+    animation: fadeUp 0.4s ease;
+  }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(16px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .gantt-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+
+  .gantt-stats {
+    display: flex;
+    gap: 24px;
+  }
+
+  .gantt-stat {
+    text-align: center;
+  }
+
+  .gantt-stat-label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--gray-500);
+  }
+
+  .gantt-stat-value {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--dark);
+  }
+
+  .gantt-stat-value.orange { color: var(--orange); }
+
+  /* Timeline */
+  .gantt-timeline {
+    position: relative;
+    margin-top: 16px;
+  }
+
+  .gantt-time-axis {
+    display: flex;
+    justify-content: space-between;
+    padding: 0 0 8px 180px;
+    border-bottom: 1px solid var(--gray-200);
+    margin-bottom: 0;
+  }
+
+  .gantt-time-label {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--gray-400);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    min-width: 42px;
+    text-align: center;
+  }
+
+  .gantt-row {
+    display: flex;
+    align-items: center;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--gray-100);
+    position: relative;
+    min-height: 56px;
+  }
+
+  .gantt-row:last-child { border-bottom: none; }
+
+  .gantt-row-label {
+    width: 180px;
+    flex-shrink: 0;
+    padding-right: 16px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .gantt-airline-logo {
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    object-fit: contain;
+    background: var(--gray-100);
+    flex-shrink: 0;
+  }
+
+  .gantt-label-text {
+    min-width: 0;
+  }
+
+  .gantt-flight-id {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--dark);
+  }
+
+  .gantt-flight-route {
+    font-size: 11px;
+    color: var(--gray-500);
+    margin-top: 1px;
+  }
+
+  .gantt-bar-area {
+    flex: 1;
+    position: relative;
+    height: 36px;
+  }
+
+  .gantt-bar {
+    position: absolute;
+    height: 36px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--white);
+    cursor: pointer;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+    min-width: 40px;
+    overflow: hidden;
+    white-space: nowrap;
+    padding: 0 8px;
+  }
+
+  .gantt-bar:hover {
+    transform: scaleY(1.08);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    z-index: 10;
+  }
+
+  .gantt-bar.flight { background: var(--orange); }
+  .gantt-bar.layover {
+    background: repeating-linear-gradient(
+      45deg,
+      transparent,
+      transparent 4px,
+      rgba(0,0,0,0.04) 4px,
+      rgba(0,0,0,0.04) 8px
+    );
+    background-color: var(--gray-200);
+    color: var(--gray-700);
+    border: 1px dashed var(--gray-300);
+  }
+
+  /* Tooltip */
+  .tooltip {
+    display: none;
+    position: fixed;
+    background: var(--blue);
+    color: var(--white);
+    padding: 14px 18px;
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    line-height: 1.6;
+    z-index: 1000;
+    pointer-events: none;
+    max-width: 280px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.25);
+  }
+
+  .tooltip.show { display: block; }
+
+  .tooltip-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--gray-400);
+    margin-bottom: 2px;
+  }
+
+  .tooltip-value {
+    font-weight: 600;
+    color: var(--white);
+  }
+
+  .tooltip-row {
+    margin-bottom: 6px;
+  }
+  .tooltip-row:last-child { margin-bottom: 0; }
+
+  /* Leg details table */
+  .leg-details {
+    margin-top: 24px;
+  }
+
+  .leg-details-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  .leg-details-table th {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--gray-500);
+    text-align: left;
+    padding: 10px 12px;
+    border-bottom: 2px solid var(--gray-200);
+  }
+
+  .leg-details-table td {
+    font-size: 14px;
+    padding: 12px;
+    border-bottom: 1px solid var(--gray-100);
+    color: var(--gray-700);
+  }
+
+  .leg-details-table tr:last-child td { border-bottom: none; }
+
+  .leg-details-table .flight-num {
+    font-weight: 600;
+    color: var(--dark);
+  }
+
+  .leg-details-table .layover-row td {
+    background: var(--gray-50);
+    color: var(--orange);
+    font-weight: 500;
+    font-size: 13px;
+    font-style: italic;
+  }
+
+  .airline-cell {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .airline-logo-sm {
+    width: 20px;
+    height: 20px;
+    border-radius: 4px;
+    object-fit: contain;
+    background: var(--gray-100);
+  }
+
+  /* Summary Stats Row */
+  .stats-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-bottom: 28px;
+  }
+
+  .stat-card {
+    border: 1px solid var(--gray-200);
+    border-radius: var(--radius);
+    padding: 20px;
+    text-align: center;
+  }
+
+  .stat-card-label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--gray-500);
+    margin-bottom: 6px;
+  }
+
+  .stat-card-value {
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--dark);
+  }
+
+  .stat-card-sub {
+    font-size: 12px;
+    color: var(--gray-400);
+    margin-top: 4px;
+  }
+
+  .stat-card-sub.green { color: var(--green); }
+  .stat-card-sub.orange { color: var(--orange); }
+
+  /* Form Section */
+  .form-section {
+    margin-top: 12px;
+  }
+
+  .flight-entries {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 20px;
+  }
+
+  .flight-entry {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    animation: fadeUp 0.25s ease;
+  }
+
+  .flight-entry input {
+    flex: 1;
+    padding: 12px 16px;
+    border: 1px solid var(--gray-200);
+    border-radius: var(--radius-sm);
+    font-size: 14px;
+    font-family: inherit;
+    color: var(--dark);
+    background: var(--white);
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    outline: none;
+  }
+
+  .flight-entry input:focus {
+    border-color: var(--orange);
+    box-shadow: 0 0 0 3px var(--orange-light);
+  }
+
+  .flight-entry input::placeholder {
+    color: var(--gray-400);
+  }
+
+  .flight-entry .input-flight { flex: 2; }
+  .flight-entry .input-date { flex: 1.2; }
+
+  .remove-btn {
+    width: 36px;
+    height: 36px;
+    border: 1px solid var(--gray-200);
+    border-radius: 50%;
+    background: var(--white);
+    color: var(--gray-400);
+    font-size: 18px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s ease;
+    flex-shrink: 0;
+  }
+
+  .remove-btn:hover {
+    border-color: #EF4444;
+    color: #EF4444;
+    background: #FEF2F2;
+  }
+
+  .btn-row {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+
+  .btn-add {
+    padding: 10px 20px;
+    border: 1px dashed var(--gray-300);
+    border-radius: var(--radius-sm);
+    background: var(--white);
+    color: var(--gray-500);
+    font-size: 14px;
+    font-family: inherit;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .btn-add:hover {
+    border-color: var(--orange);
+    color: var(--orange);
+    background: var(--orange-light);
+  }
+
+  .btn-primary {
+    padding: 14px 36px;
+    background: var(--orange);
+    color: var(--white);
+    border: none;
+    border-radius: 100px;
+    font-size: 15px;
+    font-family: inherit;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 8px rgba(200,16,46,0.25);
+  }
+
+  .btn-primary:hover {
+    background: var(--orange-hover);
+    box-shadow: 0 4px 16px rgba(200,16,46,0.35);
+    transform: translateY(-1px);
+  }
+
+  .btn-primary:disabled {
+    background: var(--gray-300);
+    box-shadow: none;
+    cursor: not-allowed;
+    transform: none;
+  }
+
+  .btn-clear {
+    padding: 10px 20px;
+    border: 1px solid var(--gray-200);
+    border-radius: 100px;
+    background: var(--white);
+    color: var(--gray-500);
+    font-size: 14px;
+    font-family: inherit;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .btn-clear:hover {
+    border-color: var(--gray-400);
+    color: var(--dark);
+  }
+
+  /* Trust row */
+  .trust-row {
+    display: flex;
+    justify-content: center;
+    gap: 24px;
+    padding: 28px 0 48px;
+    font-size: 13px;
+    color: var(--gray-500);
+  }
+
+  .trust-item::before {
+    content: '✓';
+    margin-right: 6px;
+    color: var(--green);
+    font-weight: 600;
+  }
+
+  /* Error / Loading */
+  .status-msg {
+    text-align: center;
+    padding: 16px;
+    border-radius: var(--radius-sm);
+    font-size: 14px;
+    margin-bottom: 16px;
+    display: none;
+  }
+
+  .status-msg.error {
+    display: block;
+    background: #FEF2F2;
+    color: #DC2626;
+    border: 1px solid #FECACA;
+  }
+
+  .status-msg.loading {
+    display: block;
+    background: var(--blue-light);
+    color: var(--blue);
+    border: 1px solid #C5D9ED;
+  }
+
+  .status-msg.info {
+    display: block;
+    background: var(--orange-light);
+    color: var(--orange);
+    border: 1px solid #FED7AA;
+  }
+
+  /* API Key Config */
+  .api-config {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    margin-bottom: 20px;
+    padding: 16px;
+    background: var(--gray-50);
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--gray-200);
+  }
+
+  .api-config label {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--gray-700);
+    white-space: nowrap;
+  }
+
+  .api-config input {
+    flex: 1;
+    padding: 8px 12px;
+    border: 1px solid var(--gray-200);
+    border-radius: 6px;
+    font-size: 13px;
+    font-family: monospace;
+    outline: none;
+  }
+
+  .api-config input:focus {
+    border-color: var(--orange);
+  }
+
+  .api-config-note {
+    font-size: 11px;
+    color: var(--gray-400);
+    margin-top: 6px;
+  }
+
+  /* Responsive */
+  @media (max-width: 768px) {
+    .card { padding: 24px 18px; }
+    .stats-row { grid-template-columns: 1fr; }
+    .flight-entry { flex-wrap: wrap; }
+    .flight-entry .input-flight,
+    .flight-entry .input-date { flex: 1 1 100%; }
+    .gantt-time-axis { padding-left: 120px; }
+    .gantt-row-label { width: 120px; }
+    .btn-row { flex-direction: column; align-items: stretch; }
+    .btn-primary { text-align: center; }
+    .leg-details { overflow-x: auto; }
+  }
+
+  /* Spinner */
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+  .spinner {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid var(--blue);
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+    vertical-align: middle;
+    margin-right: 8px;
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <!-- Hero -->
+  <div class="hero">
+    <div class="badge">Flight Planner — Instant Visual</div>
+    <h1>Plot Your <span>Flights</span><br>on a Timeline</h1>
+    <p>Enter flight numbers and dates below. We'll fetch the details and build your journey Gantt chart.</p>
+  </div>
+
+  <div class="dot-divider"></div>
+
+  <!-- Gantt Chart (appears after submit) -->
+  <div id="gantt-container">
+    <div class="card">
+      <div class="card-title">Your <span>Journey</span> Timeline</div>
+      <div class="card-subtitle" id="journey-subtitle"></div>
+
+      <!-- Stats -->
+      <div class="stats-row" id="stats-row"></div>
+
+      <!-- Gantt -->
+      <div class="gantt-timeline">
+        <div class="gantt-time-axis" id="gantt-time-axis"></div>
+        <div id="gantt-rows"></div>
+      </div>
+
+      <!-- Leg Details Table -->
+      <div class="leg-details">
+        <table class="leg-details-table">
+          <thead>
+            <tr>
+              <th>Flight</th>
+              <th>Airline</th>
+              <th>Route</th>
+              <th>Departs</th>
+              <th>Arrives</th>
+              <th>Duration</th>
+            </tr>
+          </thead>
+          <tbody id="leg-table-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tooltip -->
+  <div class="tooltip" id="tooltip"></div>
+
+  <!-- Input Form -->
+  <div class="card form-section">
+    <div class="card-title">Add <span>Flights</span></div>
+    <div class="card-subtitle">Enter each flight number and its departure date. We'll look up the rest.</div>
+
+    <div class="api-config">
+      <label>AeroDataBox API Key:</label>
+      <input type="password" id="api-key-input" placeholder="Your RapidAPI key for AeroDataBox" />
+    </div>
+    <div class="api-config-note">Your key is stored only in your browser's local memory and is never sent anywhere except the AeroDataBox API via RapidAPI.</div>
+
+    <div style="height:16px"></div>
+
+    <div id="status-msg" class="status-msg"></div>
+
+    <div class="flight-entries" id="flight-entries">
+      <!-- Rows injected by JS -->
+    </div>
+
+    <div class="btn-row">
+      <button class="btn-add" onclick="addFlightRow()">+ Add Another Flight</button>
+      <div style="flex:1"></div>
+      <button class="btn-clear" onclick="clearAll()">Clear All</button>
+      <button class="btn-primary" id="submit-btn" onclick="handleSubmit()">Plot My Flights →</button>
+    </div>
+  </div>
+
+  <div class="trust-row">
+    <span class="trust-item">Free to use</span>
+    <span class="trust-item">Instant results</span>
+    <span class="trust-item">No signup needed</span>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// State
+// ============================================================
+let flightRowCount = 0;
+let fetchedFlights = [];
+
+// Airline logo via public logo API
+function airlineLogoUrl(iataCode) {
+  return `https://pics.avs.io/60/60/${iataCode.toUpperCase()}.png`;
+}
+
+// ============================================================
+// Flight Row Management
+// ============================================================
+function addFlightRow(flightNum = '', date = '') {
+  flightRowCount++;
+  const id = flightRowCount;
+  const container = document.getElementById('flight-entries');
+
+  // Default date to today
+  if (!date) {
+    const today = new Date();
+    const mm = String(today.getMonth() + 1).padStart(2, '0');
+    const dd = String(today.getDate()).padStart(2, '0');
+    date = `${mm}/${dd}/${today.getFullYear()}`;
+  }
+
+  const row = document.createElement('div');
+  row.className = 'flight-entry';
+  row.id = `flight-row-${id}`;
+  row.innerHTML = `
+    <input class="input-flight" type="text" placeholder="e.g. AA 1234 or UA100" data-id="${id}" />
+    <input class="input-date" type="text" placeholder="MM/DD/YYYY" value="${date}" data-id="${id}" />
+    <button class="remove-btn" onclick="removeFlightRow(${id})" title="Remove">×</button>
+  `;
+  container.appendChild(row);
+}
+
+function removeFlightRow(id) {
+  const row = document.getElementById(`flight-row-${id}`);
+  if (row) row.remove();
+  // ensure at least one row
+  if (document.querySelectorAll('.flight-entry').length === 0) addFlightRow();
+}
+
+function clearAll() {
+  document.getElementById('flight-entries').innerHTML = '';
+  document.getElementById('gantt-container').style.display = 'none';
+  fetchedFlights = [];
+  hideStatus();
+  addFlightRow();
+  addFlightRow();
+}
+
+// ============================================================
+// Status Messages
+// ============================================================
+function showStatus(msg, type = 'loading') {
+  const el = document.getElementById('status-msg');
+  el.className = `status-msg ${type}`;
+  el.innerHTML = type === 'loading' ? `<span class="spinner"></span>${msg}` : msg;
+}
+
+function hideStatus() {
+  const el = document.getElementById('status-msg');
+  el.className = 'status-msg';
+  el.innerHTML = '';
+}
+
+// ============================================================
+// AeroDataBox API
+// ============================================================
+function parseFlightNumber(raw) {
+  const s = raw.trim().toUpperCase().replace(/\s+/g, '');
+  // Match 2-char alphanumeric airline code + flight number digits
+  const match2 = s.match(/^([A-Z0-9]{2})(\d+)$/);
+  if (match2) return { airline: match2[1], number: match2[2] };
+  // Try 3-char code
+  const match3 = s.match(/^([A-Z]{3})(\d+)$/);
+  if (match3) return { airline: match3[1], number: match3[2] };
+  // Try with space
+  const raw2 = raw.trim().toUpperCase();
+  const parts = raw2.split(/\s+/);
+  if (parts.length === 2 && /^\d+$/.test(parts[1])) return { airline: parts[0], number: parts[1] };
+  return null;
+}
+
+function parseDate(str) {
+  // Expect MM/DD/YYYY
+  const parts = str.trim().split('/');
+  if (parts.length !== 3) return null;
+  const [mm, dd, yyyy] = parts;
+  const d = new Date(parseInt(yyyy), parseInt(mm) - 1, parseInt(dd));
+  if (isNaN(d.getTime())) return null;
+  return d;
+}
+
+function formatDateForApi(dateObj) {
+  const yyyy = dateObj.getFullYear();
+  const mm = String(dateObj.getMonth() + 1).padStart(2, '0');
+  const dd = String(dateObj.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+async function fetchFlight(airlineCode, flightNum, dateStr, apiKey) {
+  // AeroDataBox endpoint: GET /flights/number/{airline}{number}/{date}
+  const flightCode = `${airlineCode}${flightNum}`;
+  const url = `https://aerodatabox.p.rapidapi.com/flights/number/${flightCode}/${dateStr}?withAircraftImage=false&withLocation=false`;
+
+  let resp;
+  try {
+    resp = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'x-rapidapi-host': 'aerodatabox.p.rapidapi.com',
+        'x-rapidapi-key': apiKey
+      }
+    });
+  } catch (e) {
+    throw new Error(`Network error for ${flightCode}. Check your connection and API key.`);
+  }
+
+  if (!resp.ok) {
+    if (resp.status === 401 || resp.status === 403) throw new Error('Invalid API key. Check your RapidAPI key.');
+    if (resp.status === 404) throw new Error(`${flightCode} not found on ${dateStr}. Check flight number & date.`);
+    if (resp.status === 429) throw new Error('Rate limit reached. Wait a moment and retry.');
+    throw new Error(`API error ${resp.status} for ${flightCode}.`);
+  }
+
+  const text = await resp.text();
+  if (!text || text.trim() === '') throw new Error(`No data returned for ${flightCode} on ${dateStr}. Schedule may not be published yet.`);
+
+  let data;
+  try { data = JSON.parse(text); } catch (e) { throw new Error(`Bad response for ${flightCode}.`); }
+  if (!data || (Array.isArray(data) && data.length === 0)) throw new Error(`No flight data found for ${flightCode} on ${dateStr}`);
+
+  // Pick the first result (there may be codeshares)
+  const f = Array.isArray(data) ? data[0] : data;
+  return {
+    flightNumber: flightCode,
+    airlineIata: f.airline?.iata || airlineCode,
+    airline: f.airline?.name || airlineCode,
+    origin: f.departure?.airport?.iata || f.departure?.airport?.icao || '???',
+    originName: f.departure?.airport?.name || '',
+    destination: f.arrival?.airport?.iata || f.arrival?.airport?.icao || '???',
+    destinationName: f.arrival?.airport?.name || '',
+    departureTime: f.departure?.scheduledTime?.local || f.departure?.scheduledTime?.utc,
+    arrivalTime: f.arrival?.scheduledTime?.local || f.arrival?.scheduledTime?.utc,
+    departureUTC: f.departure?.scheduledTime?.utc,
+    arrivalUTC: f.arrival?.scheduledTime?.utc,
+    status: f.status || '',
+    aircraft: f.aircraft?.model || ''
+  };
+}
+
+// ============================================================
+// Submit Handler
+// ============================================================
+async function handleSubmit() {
+  const apiKey = document.getElementById('api-key-input').value.trim();
+  if (!apiKey) {
+    showStatus('Please enter your AeroDataBox RapidAPI key above.', 'error');
+    return;
+  }
+
+  const rows = document.querySelectorAll('.flight-entry');
+  const entries = [];
+
+  for (const row of rows) {
+    const flightInput = row.querySelector('.input-flight').value.trim();
+    const dateInput = row.querySelector('.input-date').value.trim();
+    if (!flightInput) continue;
+
+    const parsed = parseFlightNumber(flightInput);
+    if (!parsed) {
+      showStatus(`Invalid flight number format: "${flightInput}". Use format like AA1234 or UA 100.`, 'error');
+      return;
+    }
+
+    const dateObj = parseDate(dateInput);
+    if (!dateObj) {
+      showStatus(`Invalid date format: "${dateInput}". Use MM/DD/YYYY.`, 'error');
+      return;
+    }
+
+    entries.push({ ...parsed, dateObj, dateStr: formatDateForApi(dateObj), raw: flightInput });
+  }
+
+  if (entries.length === 0) {
+    showStatus('Please enter at least one flight number.', 'error');
+    return;
+  }
+
+  // Fetch each flight
+  document.getElementById('submit-btn').disabled = true;
+  showStatus(`Fetching ${entries.length} flight(s)…`, 'loading');
+  fetchedFlights = [];
+
+  try {
+    for (let i = 0; i < entries.length; i++) {
+      const e = entries[i];
+      showStatus(`Fetching flight ${i + 1} of ${entries.length}: ${e.airline}${e.number}…`, 'loading');
+      const data = await fetchFlight(e.airline, e.number, e.dateStr, apiKey);
+      fetchedFlights.push(data);
+    }
+    hideStatus();
+    renderGantt(fetchedFlights);
+  } catch (err) {
+    showStatus(err.message, 'error');
+  } finally {
+    document.getElementById('submit-btn').disabled = false;
+  }
+}
+
+// ============================================================
+// Rendering
+// ============================================================
+function parseDT(str) {
+  if (!str) return null;
+  // AeroDataBox local times come as "2025-03-15 14:30+02:00" or "2025-03-15T14:30"
+  const cleaned = str.replace(' ', 'T');
+  return new Date(cleaned);
+}
+
+function formatTime(dt) {
+  if (!dt) return '—';
+  let h = dt.getHours();
+  const m = String(dt.getMinutes()).padStart(2, '0');
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  h = h % 12 || 12;
+  return `${h}:${m} ${ampm}`;
+}
+
+function formatDuration(ms) {
+  const totalMin = Math.round(ms / 60000);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  if (h === 0) return `${m}m`;
+  return `${h}h ${m}m`;
+}
+
+function renderGantt(flights) {
+  if (flights.length === 0) return;
+
+  // Parse all times
+  const legs = flights.map(f => ({
+    ...f,
+    dep: parseDT(f.departureTime),
+    arr: parseDT(f.arrivalTime)
+  }));
+
+  // Sort by departure time so timeline is chronological
+  legs.sort((a, b) => a.dep - b.dep);
+
+  // Compute layovers
+  const segments = []; // { type: 'flight' | 'layover', ... }
+  for (let i = 0; i < legs.length; i++) {
+    segments.push({ type: 'flight', ...legs[i] });
+    if (i < legs.length - 1) {
+      const layoverMs = legs[i + 1].dep - legs[i].arr;
+      if (layoverMs > 0) {
+        segments.push({
+          type: 'layover',
+          dep: legs[i].arr,
+          arr: legs[i + 1].dep,
+          origin: legs[i].destination,
+          destination: legs[i + 1].origin,
+          durationMs: layoverMs
+        });
+      }
+    }
+  }
+
+  // Global time range
+  const allTimes = legs.flatMap(l => [l.dep, l.arr]).filter(Boolean);
+  const minTime = new Date(Math.min(...allTimes));
+  const maxTime = new Date(Math.max(...allTimes));
+  const totalMs = maxTime - minTime;
+  const totalFlightMs = legs.reduce((s, l) => s + (l.arr - l.dep), 0);
+  const totalLayoverMs = segments.filter(s => s.type === 'layover').reduce((s, l) => s + l.durationMs, 0);
+
+  // Subtitle
+  const startDate = minTime.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  const endDate = maxTime.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  document.getElementById('journey-subtitle').textContent =
+    startDate === endDate ? `${startDate}` : `${startDate} — ${endDate}`;
+
+  // Stats
+  document.getElementById('stats-row').innerHTML = `
+    <div class="stat-card">
+      <div class="stat-card-label">Total Flights</div>
+      <div class="stat-card-value">${legs.length}</div>
+      <div class="stat-card-sub">${legs[0].origin} → ${legs[legs.length - 1].destination}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-card-label">Flight Time</div>
+      <div class="stat-card-value">${formatDuration(totalFlightMs)}</div>
+      <div class="stat-card-sub green">In the air</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-card-label">Total Journey</div>
+      <div class="stat-card-value">${formatDuration(totalMs)}</div>
+      <div class="stat-card-sub orange">${totalLayoverMs > 0 ? formatDuration(totalLayoverMs) + ' layover' : 'Direct'}</div>
+    </div>
+  `;
+
+  // Time axis — generate hour markers
+  const axisEl = document.getElementById('gantt-time-axis');
+  axisEl.innerHTML = '';
+  const hourStart = new Date(minTime);
+  hourStart.setMinutes(0, 0, 0);
+  const hourEnd = new Date(maxTime);
+  hourEnd.setMinutes(0, 0, 0);
+  hourEnd.setHours(hourEnd.getHours() + 1);
+
+  const hours = [];
+  let cursor = new Date(hourStart);
+  // Show a reasonable number of labels
+  const totalHours = (hourEnd - hourStart) / 3600000;
+  const step = totalHours <= 12 ? 1 : totalHours <= 24 ? 2 : Math.ceil(totalHours / 12);
+
+  while (cursor <= hourEnd) {
+    hours.push(new Date(cursor));
+    cursor = new Date(cursor.getTime() + step * 3600000);
+  }
+
+  hours.forEach(h => {
+    const label = document.createElement('div');
+    label.className = 'gantt-time-label';
+    const hr = h.getHours();
+    const ampm = hr >= 12 ? 'PM' : 'AM';
+    const hr12 = hr % 12 || 12;
+    // If multi-day, show date too
+    const showDate = totalHours > 24;
+    label.textContent = showDate
+      ? `${h.getMonth() + 1}/${h.getDate()} ${hr12}${ampm}`
+      : `${hr12}${ampm}`;
+    axisEl.appendChild(label);
+  });
+
+  // Gantt rows
+  const rowsEl = document.getElementById('gantt-rows');
+  rowsEl.innerHTML = '';
+
+  // We render ONE row per segment
+  segments.forEach((seg, idx) => {
+    const row = document.createElement('div');
+    row.className = 'gantt-row';
+
+    // Label
+    const labelDiv = document.createElement('div');
+    labelDiv.className = 'gantt-row-label';
+    if (seg.type === 'flight') {
+      const logoUrl = airlineLogoUrl(seg.airlineIata || seg.flightNumber.substring(0, 2));
+      labelDiv.innerHTML = `
+        <img class="gantt-airline-logo" src="${logoUrl}" alt="${seg.airline}" onerror="this.style.display='none'" />
+        <div class="gantt-label-text">
+          <div class="gantt-flight-id">${seg.flightNumber}</div>
+          <div class="gantt-flight-route">${seg.origin} → ${seg.destination}</div>
+        </div>
+      `;
+    } else {
+      labelDiv.innerHTML = `
+        <div style="width:28px;height:28px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:16px;">⏱</div>
+        <div class="gantt-label-text">
+          <div class="gantt-flight-id" style="color:var(--gray-400)">Layover</div>
+          <div class="gantt-flight-route">${seg.origin}</div>
+        </div>
+      `;
+    }
+
+    // Bar area
+    const barArea = document.createElement('div');
+    barArea.className = 'gantt-bar-area';
+
+    const leftPct = ((seg.dep - minTime) / totalMs) * 100;
+    const widthPct = ((seg.arr - seg.dep) / totalMs) * 100;
+
+    const bar = document.createElement('div');
+    bar.className = `gantt-bar ${seg.type}`;
+    bar.style.left = `${leftPct}%`;
+    bar.style.width = `${Math.max(widthPct, 2)}%`;
+
+    if (seg.type === 'flight') {
+      bar.textContent = `${formatTime(seg.dep)} — ${formatTime(seg.arr)}`;
+    } else {
+      bar.textContent = formatDuration(seg.durationMs);
+    }
+
+    // Tooltip
+    bar.addEventListener('mouseenter', (e) => showTooltip(e, seg));
+    bar.addEventListener('mousemove', (e) => moveTooltip(e));
+    bar.addEventListener('mouseleave', () => hideTooltip());
+
+    barArea.appendChild(bar);
+    row.appendChild(labelDiv);
+    row.appendChild(barArea);
+    rowsEl.appendChild(row);
+  });
+
+  // Leg details table
+  const tbody = document.getElementById('leg-table-body');
+  tbody.innerHTML = '';
+  segments.forEach((seg, idx) => {
+    const tr = document.createElement('tr');
+    if (seg.type === 'flight') {
+      const logoUrl = airlineLogoUrl(seg.airlineIata || seg.flightNumber.substring(0, 2));
+      tr.innerHTML = `
+        <td class="flight-num">${seg.flightNumber}</td>
+        <td><div class="airline-cell"><img class="airline-logo-sm" src="${logoUrl}" alt="" onerror="this.style.display='none'" />${seg.airline}</div></td>
+        <td>${seg.origin} → ${seg.destination}</td>
+        <td>${formatTime(seg.dep)}</td>
+        <td>${formatTime(seg.arr)}</td>
+        <td>${formatDuration(seg.arr - seg.dep)}</td>
+      `;
+    } else {
+      tr.className = 'layover-row';
+      tr.innerHTML = `
+        <td colspan="6">⏱ Layover at ${seg.origin} — ${formatDuration(seg.durationMs)}</td>
+      `;
+    }
+    tbody.appendChild(tr);
+  });
+
+  // Show gantt section
+  document.getElementById('gantt-container').style.display = 'block';
+  document.getElementById('gantt-container').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// ============================================================
+// Tooltip
+// ============================================================
+function showTooltip(e, seg) {
+  const tip = document.getElementById('tooltip');
+  let html = '';
+  if (seg.type === 'flight') {
+    html = `
+      <div class="tooltip-row"><span class="tooltip-label">Flight</span><br><span class="tooltip-value">${seg.flightNumber} — ${seg.airline}</span></div>
+      <div class="tooltip-row"><span class="tooltip-label">Route</span><br><span class="tooltip-value">${seg.originName || seg.origin} → ${seg.destinationName || seg.destination}</span></div>
+      <div class="tooltip-row"><span class="tooltip-label">Departure</span><br><span class="tooltip-value">${formatTime(seg.dep)}</span></div>
+      <div class="tooltip-row"><span class="tooltip-label">Arrival</span><br><span class="tooltip-value">${formatTime(seg.arr)}</span></div>
+      <div class="tooltip-row"><span class="tooltip-label">Duration</span><br><span class="tooltip-value">${formatDuration(seg.arr - seg.dep)}</span></div>
+      ${seg.aircraft ? `<div class="tooltip-row"><span class="tooltip-label">Aircraft</span><br><span class="tooltip-value">${seg.aircraft}</span></div>` : ''}
+    `;
+  } else {
+    html = `
+      <div class="tooltip-row"><span class="tooltip-label">Layover</span><br><span class="tooltip-value">${seg.origin}</span></div>
+      <div class="tooltip-row"><span class="tooltip-label">Duration</span><br><span class="tooltip-value">${formatDuration(seg.durationMs)}</span></div>
+    `;
+  }
+  tip.innerHTML = html;
+  tip.classList.add('show');
+  moveTooltip(e);
+}
+
+function moveTooltip(e) {
+  const tip = document.getElementById('tooltip');
+  tip.style.left = (e.clientX + 16) + 'px';
+  tip.style.top = (e.clientY + 16) + 'px';
+}
+
+function hideTooltip() {
+  document.getElementById('tooltip').classList.remove('show');
+}
+
+// ============================================================
+// Init
+// ============================================================
+addFlightRow();
+addFlightRow();
+</script>
+
+</body>
+</html>
