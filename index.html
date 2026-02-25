@@ -1016,29 +1016,36 @@ function formatDuration(ms) {
 function renderGantt(flights) {
   if (flights.length === 0) return;
 
-  // === PARSE TIMES ===
-  // Use UTC times ONLY for all math/positioning (they have +00:00 so they parse correctly)
-  // Use raw local time strings for display labels only
-  const legs = flights.map(f => {
-    const depUTC = parseDT(f.departureUTC);
-    const arrUTC = parseDT(f.arrivalUTC);
-    // Extract display time from local string like "2026-05-17 08:11-05:00" -> "8:11 AM"
-    const depDisplay = extractLocalTimeDisplay(f.departureTime);
-    const arrDisplay = extractLocalTimeDisplay(f.arrivalTime);
-    return { ...f, depUTC, arrUTC, depDisplay, arrDisplay };
+  // Parse local times for display (this worked correctly in the original version)
+  const legs = flights.map(f => ({
+    ...f,
+    dep: parseDT(f.departureTime),
+    arr: parseDT(f.arrivalTime),
+    depDisplay: extractLocalTimeDisplay(f.departureTime),
+    arrDisplay: extractLocalTimeDisplay(f.arrivalTime)
+  }));
+
+  // Calculate each flight's duration in ms
+  // We use the LOCAL times but handle overnight/cross-date correctly:
+  // if arr < dep, the flight crosses midnight so add 24h
+  legs.forEach(leg => {
+    let dur = leg.arr - leg.dep;
+    if (dur <= 0) dur += 24 * 60 * 60 * 1000; // crosses midnight
+    leg.flightDurationMs = dur;
   });
 
-  // === LAYOVERS (using UTC) ===
+  // Build segments with layovers
+  // Layover = gap between leg[i] arrival and leg[i+1] departure
+  // If the gap is negative, it means the next departure is the next day
   const segments = [];
   for (let i = 0; i < legs.length; i++) {
-    segments.push({ type: 'flight', ...legs[i] });
+    segments.push({ type: 'flight', ...legs[i], durationMs: legs[i].flightDurationMs });
     if (i < legs.length - 1) {
-      const gapMs = legs[i + 1].depUTC - legs[i].arrUTC;
-      if (gapMs > 0) {
+      let gapMs = legs[i + 1].dep - legs[i].arr;
+      if (gapMs < 0) gapMs += 24 * 60 * 60 * 1000; // next day
+      if (gapMs > 0 && gapMs < 24 * 60 * 60 * 1000) { // sanity: less than 24h
         segments.push({
           type: 'layover',
-          depUTC: legs[i].arrUTC,
-          arrUTC: legs[i + 1].depUTC,
           origin: legs[i].destination,
           durationMs: gapMs
         });
@@ -1046,17 +1053,15 @@ function renderGantt(flights) {
     }
   }
 
-  // === GLOBAL RANGE (UTC) ===
-  const minUTC = legs[0].depUTC;
-  const maxUTC = legs[legs.length - 1].arrUTC;
-  const totalMs = maxUTC - minUTC;
-  const totalFlightMs = legs.reduce((s, l) => s + (l.arrUTC - l.depUTC), 0);
+  // Compute totals from segment durations (not from timestamp subtraction)
+  const totalFlightMs = segments.filter(s => s.type === 'flight').reduce((s, l) => s + l.durationMs, 0);
   const totalLayoverMs = segments.filter(s => s.type === 'layover').reduce((s, l) => s + l.durationMs, 0);
+  const totalJourneyMs = totalFlightMs + totalLayoverMs;
 
-  // === SUBTITLE ===
+  // Subtitle — extract dates from raw strings to avoid timezone issues
   const fmtDate = (raw) => {
     if (!raw) return '';
-    const d = raw.trim().substring(0, 10); // "2026-05-17"
+    const d = raw.trim().substring(0, 10);
     const [y, m, dd] = d.split('-');
     const dt = new Date(+y, +m - 1, +dd);
     return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
@@ -1066,7 +1071,7 @@ function renderGantt(flights) {
   document.getElementById('journey-subtitle').textContent =
     startDate === endDate ? startDate : `${startDate} — ${endDate}`;
 
-  // === STATS ===
+  // Stats
   document.getElementById('stats-row').innerHTML = `
     <div class="stat-card">
       <div class="stat-card-label">Total Flights</div>
@@ -1080,53 +1085,36 @@ function renderGantt(flights) {
     </div>
     <div class="stat-card">
       <div class="stat-card-label">Total Journey</div>
-      <div class="stat-card-value">${formatDuration(totalMs)}</div>
+      <div class="stat-card-value">${formatDuration(totalJourneyMs)}</div>
       <div class="stat-card-sub orange">${totalLayoverMs > 0 ? formatDuration(totalLayoverMs) + ' layover' : 'Direct'}</div>
     </div>
   `;
 
-  // === TIME AXIS ===
-  // Show hour labels sequentially from first departure's local time
+  // Time axis — show hours starting from first departure local time
   const axisEl = document.getElementById('gantt-time-axis');
   axisEl.innerHTML = '';
-
-  // Extract departure hour from raw local time string of first flight
   const depMatch = flights[0].departureTime.match(/(\d{2}):(\d{2})/);
   const startHour = depMatch ? parseInt(depMatch[1], 10) : 0;
-  const startMin = depMatch ? parseInt(depMatch[2], 10) : 0;
-
-  const totalHours = totalMs / 3600000;
+  const totalHours = totalJourneyMs / 3600000;
   const step = totalHours <= 12 ? 1 : totalHours <= 24 ? 2 : Math.ceil(totalHours / 12);
 
-  // Generate labels from start hour through journey duration
   for (let offset = 0; offset <= totalHours + 1; offset += step) {
     const label = document.createElement('div');
     label.className = 'gantt-time-label';
     let h = (startHour + offset) % 24;
     const ampm = h >= 12 ? 'PM' : 'AM';
     const h12 = h % 12 || 12;
-    // Show day indicator if journey spans midnight
     const dayOffset = Math.floor((startHour + offset) / 24);
     label.textContent = dayOffset > 0 ? `+${dayOffset}d ${h12}${ampm}` : `${h12}${ampm}`;
     axisEl.appendChild(label);
   }
 
-  // === GANTT ROWS ===
-  // Position bars SEQUENTIALLY: first segment starts at left, each subsequent
-  // segment starts where the previous one ended. No timestamp math — just durations.
+  // Gantt rows — SEQUENTIAL positioning by cumulative duration
   const rowsEl = document.getElementById('gantt-rows');
   rowsEl.innerHTML = '';
-
-  // Calculate total journey duration by summing all segment durations
-  const segDurations = segments.map(seg => {
-    if (seg.type === 'layover') return seg.durationMs;
-    return seg.arrUTC - seg.depUTC;
-  });
-  const totalJourneyMs = segDurations.reduce((a, b) => a + b, 0);
-
-  // Build cumulative offsets
   let cumulativeMs = 0;
-  segments.forEach((seg, idx) => {
+
+  segments.forEach(seg => {
     const row = document.createElement('div');
     row.className = 'gantt-row';
 
@@ -1154,9 +1142,8 @@ function renderGantt(flights) {
     const barArea = document.createElement('div');
     barArea.className = 'gantt-bar-area';
 
-    const segMs = segDurations[idx];
     const leftPct = (cumulativeMs / totalJourneyMs) * 100;
-    const widthPct = (segMs / totalJourneyMs) * 100;
+    const widthPct = (seg.durationMs / totalJourneyMs) * 100;
 
     const bar = document.createElement('div');
     bar.className = `gantt-bar ${seg.type}`;
@@ -1178,10 +1165,10 @@ function renderGantt(flights) {
     row.appendChild(barArea);
     rowsEl.appendChild(row);
 
-    cumulativeMs += segMs;
+    cumulativeMs += seg.durationMs;
   });
 
-  // === LEG DETAILS TABLE ===
+  // Leg details table
   const tbody = document.getElementById('leg-table-body');
   tbody.innerHTML = '';
   segments.forEach(seg => {
@@ -1194,7 +1181,7 @@ function renderGantt(flights) {
         <td>${seg.origin} → ${seg.destination}</td>
         <td>${seg.depDisplay}</td>
         <td>${seg.arrDisplay}</td>
-        <td>${formatDuration(seg.arrUTC - seg.depUTC)}</td>
+        <td>${formatDuration(seg.durationMs)}</td>
       `;
     } else {
       tr.className = 'layover-row';
@@ -1217,9 +1204,9 @@ function showTooltip(e, seg) {
     html = `
       <div class="tooltip-row"><span class="tooltip-label">Flight</span><br><span class="tooltip-value">${seg.flightNumber} — ${seg.airline}</span></div>
       <div class="tooltip-row"><span class="tooltip-label">Route</span><br><span class="tooltip-value">${seg.originName || seg.origin} → ${seg.destinationName || seg.destination}</span></div>
-      <div class="tooltip-row"><span class="tooltip-label">Departure</span><br><span class="tooltip-value">${seg.depDisplay}</span></div>
-      <div class="tooltip-row"><span class="tooltip-label">Arrival</span><br><span class="tooltip-value">${seg.arrDisplay}</span></div>
-      <div class="tooltip-row"><span class="tooltip-label">Duration</span><br><span class="tooltip-value">${formatDuration(seg.arrUTC - seg.depUTC)}</span></div>
+      <div class="tooltip-row"><span class="tooltip-label">Departure</span><br><span class="tooltip-value">${seg.depDisplay || formatTime(seg.dep)}</span></div>
+      <div class="tooltip-row"><span class="tooltip-label">Arrival</span><br><span class="tooltip-value">${seg.arrDisplay || formatTime(seg.arr)}</span></div>
+      <div class="tooltip-row"><span class="tooltip-label">Duration</span><br><span class="tooltip-value">${formatDuration(seg.durationMs)}</span></div>
       ${seg.aircraft ? `<div class="tooltip-row"><span class="tooltip-label">Aircraft</span><br><span class="tooltip-value">${seg.aircraft}</span></div>` : ''}
     `;
   } else {
