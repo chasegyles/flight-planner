@@ -720,7 +720,7 @@
   <!-- Input Form -->
   <div class="card form-section">
     <div class="card-title">Add <span>Flights</span></div>
-    <div class="card-subtitle">Enter each flight number and its departure date. We'll look up the rest. API Key is: e784c8a0a1msh88c4ba5d53e6660p1fe5bajsn611c82e3cc8d</div>
+    <div class="card-subtitle">Enter each flight number and its departure date. We'll look up the rest.</div>
 
     <div class="api-config">
       <label>AeroDataBox API Key:</label>
@@ -888,9 +888,8 @@ async function fetchFlight(airlineCode, flightNum, dateStr, apiKey) {
   try { data = JSON.parse(text); } catch (e) { throw new Error(`Bad response for ${flightCode}.`); }
   if (!data || (Array.isArray(data) && data.length === 0)) throw new Error(`No flight data found for ${flightCode} on ${dateStr}`);
 
-  // Pick the first result (there may be codeshares)
-  const f = Array.isArray(data) ? data[0] : data;
-  return {
+  // Return ALL results so the user can pick the right segment
+  const results = (Array.isArray(data) ? data : [data]).map(f => ({
     flightNumber: flightCode,
     airlineIata: f.airline?.iata || airlineCode,
     airline: f.airline?.name || airlineCode,
@@ -904,7 +903,48 @@ async function fetchFlight(airlineCode, flightNum, dateStr, apiKey) {
     arrivalUTC: f.arrival?.scheduledTime?.utc,
     status: f.status || '',
     aircraft: f.aircraft?.model || ''
-  };
+  }));
+  return results;
+}
+
+// Show a modal picker when multiple routes exist for the same flight number
+function pickRoute(flightCode, options) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;animation:fadeUp 0.2s ease;';
+    const modal = document.createElement('div');
+    modal.style.cssText = 'background:#fff;border-radius:16px;padding:28px;max-width:480px;width:90%;max-height:80vh;overflow-y:auto;box-shadow:0 24px 64px rgba(0,0,0,0.25);';
+    modal.innerHTML = `
+      <div style="font-size:18px;font-weight:700;margin-bottom:4px;">Multiple routes found</div>
+      <div style="font-size:13px;color:#888;margin-bottom:20px;">${flightCode} operates multiple segments on this date. Pick your route:</div>
+      <div id="route-options" style="display:flex;flex-direction:column;gap:10px;"></div>
+    `;
+    const optContainer = modal.querySelector('#route-options');
+    options.forEach((opt, idx) => {
+      const depDisplay = extractLocalTimeDisplay(opt.departureTime);
+      const arrDisplay = extractLocalTimeDisplay(opt.arrivalTime);
+      const btn = document.createElement('button');
+      btn.style.cssText = 'display:flex;align-items:center;gap:14px;padding:14px 18px;border:1px solid #E5E7EB;border-radius:10px;background:#fff;cursor:pointer;transition:all 0.15s ease;text-align:left;font-family:inherit;width:100%;';
+      btn.innerHTML = `
+        <img src="${airlineLogoUrl(opt.airlineIata)}" style="width:32px;height:32px;border-radius:6px;background:#F3F4F6;object-fit:contain;" onerror="this.style.display='none'" />
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:14px;font-weight:600;color:#1A1A1A;">${opt.origin} → ${opt.destination}</div>
+          <div style="font-size:12px;color:#888;margin-top:2px;">${opt.originName} → ${opt.destinationName}</div>
+        </div>
+        <div style="text-align:right;flex-shrink:0;">
+          <div style="font-size:13px;font-weight:600;color:#C8102E;">${depDisplay}</div>
+          <div style="font-size:11px;color:#888;">${arrDisplay}</div>
+        </div>
+      `;
+      btn.addEventListener('mouseenter', () => { btn.style.borderColor = '#C8102E'; btn.style.background = '#FFF1F2'; });
+      btn.addEventListener('mouseleave', () => { btn.style.borderColor = '#E5E7EB'; btn.style.background = '#fff'; });
+      btn.addEventListener('click', () => { overlay.remove(); resolve(opt); });
+      optContainer.appendChild(btn);
+    });
+    overlay.appendChild(modal);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) { overlay.remove(); resolve(null); } });
+    document.body.appendChild(overlay);
+  });
 }
 
 // ============================================================
@@ -954,8 +994,22 @@ async function handleSubmit() {
     for (let i = 0; i < entries.length; i++) {
       const e = entries[i];
       showStatus(`Fetching flight ${i + 1} of ${entries.length}: ${e.airline}${e.number}…`, 'loading');
-      const data = await fetchFlight(e.airline, e.number, e.dateStr, apiKey);
-      fetchedFlights.push(data);
+      const results = await fetchFlight(e.airline, e.number, e.dateStr, apiKey);
+
+      let picked;
+      if (results.length === 1) {
+        picked = results[0];
+      } else {
+        // Multiple routes for this flight number — let user pick
+        hideStatus();
+        picked = await pickRoute(`${e.airline}${e.number}`, results);
+        if (!picked) {
+          showStatus('Flight selection cancelled.', 'error');
+          document.getElementById('submit-btn').disabled = false;
+          return;
+        }
+      }
+      fetchedFlights.push(picked);
     }
     hideStatus();
     renderGantt(fetchedFlights);
